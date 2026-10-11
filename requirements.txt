@@ -1,0 +1,6 @@
+# Versions below are the ones the test suite was run against (Python 3.12). Newer minor versions should work.
+fastapi>=0.115,<1.0          # tested: 0.143.0
+uvicorn[standard]>=0.30      # tested: 0.54.0  (includes websockets for the live dashboard feed)
+pydantic>=2.7,<3             # tested: 2.14.0
+pytest>=8.0                  # tested: 9.1.1
+httpx>=0.27                  # tested: 0.28.1  (used by FastAPI's TestClient in tests/test_api.py)

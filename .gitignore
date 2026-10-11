@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+frontend/dist/
+# runtime data: received files, staging, manifests, uploads, history, benchmark output
+data/*
+!data/received/
+!data/staging/
+!data/manifests/
+!data/outbox/
+data/received/*
+data/staging/*
+data/manifests/*
+data/outbox/*
+!data/*/.gitkeep
+# never commit certificates or keys
+*.pem
+*.key
+*.crt
+.env

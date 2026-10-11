@@ -1,0 +1,8 @@
+{
+  "socket_timeout": 30.0,
+  "max_connections_per_transfer": 32,
+  "max_total_connections": 256,
+  "min_chunk_size": 1024,
+  "max_chunk_size": 8388608,
+  "manifest_flush_interval": 0.5
+}
