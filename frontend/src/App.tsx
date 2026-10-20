@@ -8,9 +8,9 @@ import Integrity from "./pages/Integrity";
 import History from "./pages/History";
 import Benchmark from "./pages/Benchmark";
 
-const NAV: { id: Page; label: string }[] = [
+const TABS: { id: Page; label: string }[] = [
   { id: "overview", label: "Overview" }, { id: "new", label: "New transfer" }, { id: "live", label: "Live transfer" },
-  { id: "integrity", label: "Integrity check" }, { id: "history", label: "History and logs" }, { id: "benchmark", label: "Benchmark" },
+  { id: "integrity", label: "Integrity check" }, { id: "history", label: "History" }, { id: "benchmark", label: "Benchmark" },
 ];
 
 export interface Nav { go: (p: Page, jobId?: string) => void; jobId: string | null; config: AppConfig | null }
@@ -20,11 +20,11 @@ export default function App() {
   const [jobId, setJobId] = useState<string | null>(() => localStorage.getItem("mpft.job"));
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [online, setOnline] = useState<boolean | null>(null);
-  const [theme, setTheme] = useState<string>(() => localStorage.getItem("mpft.theme") ?? "auto");
+  const [theme, setTheme] = useState<string>(() => localStorage.getItem("mpft.theme") ?? "system");
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
+    if (theme === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
     localStorage.setItem("mpft.theme", theme);
   }, [theme]);
 
@@ -39,31 +39,28 @@ export default function App() {
   const go = (p: Page, id?: string) => {
     if (id) { setJobId(id); localStorage.setItem("mpft.job", id); }
     setPage(p);
+    window.scrollTo({ top: 0 });
   };
   const nav: Nav = { go, jobId, config };
 
   return (
-    <div className="shell">
-      <aside className="side">
-        <div className="brand">Multipath File Transfer<small>Parallel TCP sockets, verified with SHA-256</small></div>
-        <nav className="nav" aria-label="Main">
-          {NAV.map((n) => (
-            <button key={n.id} aria-current={page === n.id ? "page" : undefined} onClick={() => setPage(n.id)}>{n.label}</button>
-          ))}
-        </nav>
-        <div className="side-foot">
-          <span className={`chip ${online ? "ok" : online === false ? "bad" : ""}`}><i />{online ? "API connected" : online === false ? "API offline" : "Checking API"}</span>
-          {config && <span className="chip"><i />{config.embedded_receiver ? `Receiver on :${config.default_port}` : "External receiver"}</span>}
-          <label style={{ margin: 0 }}>Theme
-            <select value={theme} onChange={(e) => setTheme(e.target.value)} style={{ marginTop: 4 }}>
-              <option value="auto">Match system</option><option value="light">Light</option><option value="dark">Dark</option>
-            </select>
-          </label>
+    <>
+      <header className="top">
+        <div className="top-in">
+          <div className="brand">Multipath file transfer</div>
+          <nav className="tabs" aria-label="Pages">
+            {TABS.map((t) => (
+              <button key={t.id} aria-current={page === t.id ? "page" : undefined} onClick={() => go(t.id)}>{t.label}</button>
+            ))}
+          </nav>
+          <span className={`link-state ${online === false ? "bad" : ""}`} role="status">
+            {online === false ? "API not reachable" : online === null ? "Connecting to the API" : config?.embedded_receiver ? `Receiver listening on port ${config.default_port}` : "Using an external receiver"}
+          </span>
         </div>
-      </aside>
-      <main className="main">
+      </header>
+      <main className="page">
         {online === false && (
-          <div className="notice bad" role="alert">The dashboard cannot reach the API. Start it with <code>python scripts/run_dashboard.py</code> and reload.</div>
+          <p className="note-block bad" role="alert">The dashboard cannot reach the API. Start it with <code>python scripts/run_dashboard.py</code>, then reload this page.</p>
         )}
         {page === "overview" && <Overview nav={nav} />}
         {page === "new" && <NewTransfer nav={nav} />}
@@ -72,6 +69,14 @@ export default function App() {
         {page === "history" && <History nav={nav} />}
         {page === "benchmark" && <Benchmark nav={nav} />}
       </main>
-    </div>
+      <footer className="foot">
+        <span>Appearance</span>
+        {["system", "light", "dark"].map((t) => (
+          <button key={t} className="textbtn" style={{ fontWeight: theme === t ? 700 : 400 }} aria-pressed={theme === t} onClick={() => setTheme(t)}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </footer>
+    </>
   );
 }

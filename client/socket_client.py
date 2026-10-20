@@ -334,10 +334,10 @@ class TransferJob:
                     sock = None
                     sched.release(chunk.chunk_id, penalize=False)
                     st.current_chunk = None
+                    if self._cancel.is_set():       # we shut the socket ourselves: not a failure, not a retry
+                        break
                     failures += 1
                     self._net_error(st, exc, chunk.chunk_id)
-                    if self._cancel.is_set():
-                        break
                     if failures > self.cfg.max_reconnects:
                         st.status = "dead"
                         self._emit("conn_dead", f"Connection {conn_id} gave up after {failures} failures",
@@ -478,6 +478,8 @@ class TransferJob:
         done_total = self.bytes_acked + self.resumed_bytes
         avg = self.bytes_acked / elapsed if elapsed > 0 else 0.0
         cur = self.rate.rate() if self.status in ("transferring", "verifying") else 0.0
+        if self.result is not None:                      # finished: use the same figure the saved result reports
+            avg = self.result["avg_mb_s"] * MB
         speed = cur or avg
         remaining = max(total - done_total, 0)
         eta = remaining / speed if (speed > 0 and self.status == "transferring") else None
@@ -509,5 +511,5 @@ class TransferJob:
             "chunk_attempts": {str(i): a for i, a in enumerate(list(sched.attempts)) if a} if sched else {},
             "connections": conns, "retries": self.retries, "resumed_chunks": self.resumed_chunks,
             "events": self.events_since(max(self._seq - events_tail, 0), events_tail),
-            "last_seq": self._seq, "result": self.result,
+            "last_seq": self._seq, "result": self.result, "now": time.time(),
         }

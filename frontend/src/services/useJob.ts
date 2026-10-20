@@ -3,20 +3,25 @@ import { TERMINAL, type Snapshot, type TEvent } from "../types";
 import { api } from "./api";
 import { wsUrl } from "./wsUrl";
 
-export interface Sample { t: number; current: number; average: number }
+/** One chunk on one socket, from the moment it was sent until it was acknowledged (or failed). */
+export interface Span {
+  chunk: number; conn: number; t0: number; t1: number | null;
+  outcome: "open" | "ok" | "rejected" | "dropped";
+}
 
 interface Acc {
   lastSeq: number;
   chunkConn: Record<number, number>;          // chunk id -> connection that delivered it
-  lanes: Record<number, number[]>;            // connection id -> recently acknowledged chunk ids
+  spans: Span[];                              // built from real chunk_started / chunk_acked / nack / conn_error events
+  open: Record<number, Span>;                 // the chunk each connection is sending right now
   events: TEvent[];
-  samples: Sample[];
   filling: boolean;
 }
 
-const fresh = (): Acc => ({ lastSeq: 0, chunkConn: {}, lanes: {}, events: [], samples: [], filling: false });
+const MAX_SPANS = 4000;
+const fresh = (): Acc => ({ lastSeq: 0, chunkConn: {}, spans: [], open: {}, events: [], filling: false });
 
-/** Subscribes to a job (WebSocket, REST fallback) and accumulates events, lanes and throughput samples. */
+/** Subscribes to a job (WebSocket, REST fallback) and accumulates events, chunk spans and speed samples. */
 export function useJob(jobId: string | null) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,18 +33,34 @@ export function useJob(jobId: string | null) {
 
   const processEvents = useCallback((list: TEvent[]) => {
     const a = acc.current;
+    const close = (conn: number, t: number, outcome: Span["outcome"]) => {
+      const sp = a.open[conn];
+      if (sp) { sp.t1 = t; sp.outcome = outcome; delete a.open[conn]; }
+      return sp;
+    };
     for (const e of [...list].sort((x, y) => x.seq - y.seq)) {
       if (e.seq <= a.lastSeq) continue;
       a.lastSeq = e.seq;
-      if (e.type === "chunk_acked" && e.conn_id != null && e.chunk_id != null) {
-        a.chunkConn[e.chunk_id] = e.conn_id;
-        const lane = (a.lanes[e.conn_id] ??= []);
-        lane.push(e.chunk_id);
-        if (lane.length > 14) lane.shift();
+      if (e.conn_id != null && e.chunk_id != null) {
+        if (e.type === "chunk_started") {
+          const sp: Span = { chunk: e.chunk_id, conn: e.conn_id, t0: e.ts, t1: null, outcome: "open" };
+          a.open[e.conn_id] = sp;
+          a.spans.push(sp);
+        } else if (e.type === "chunk_acked") {
+          a.chunkConn[e.chunk_id] = e.conn_id;
+          const sp = a.open[e.conn_id];
+          if (sp && sp.chunk === e.chunk_id) close(e.conn_id, e.ts, "ok");
+          else a.spans.push({ chunk: e.chunk_id, conn: e.conn_id, t0: e.ts, t1: e.ts, outcome: "ok" });
+        } else if (e.type === "chunk_nack") {
+          close(e.conn_id, e.ts, "rejected");
+        } else if (e.type === "conn_error") {
+          close(e.conn_id, e.ts, "dropped");
+        }
       }
       a.events.push(e);
     }
     if (a.events.length > 600) a.events.splice(0, a.events.length - 600);
+    if (a.spans.length > MAX_SPANS) a.spans.splice(0, a.spans.length - MAX_SPANS);
   }, []);
 
   const ingest = useCallback((id: string, s: Snapshot) => {
@@ -53,11 +74,6 @@ export function useJob(jobId: string | null) {
       } else {
         processEvents(s.events);
       }
-    }
-    const last = a.samples[a.samples.length - 1];
-    if ((s.status === "transferring" || s.status === "verifying") && s.elapsed > (last?.t ?? -1)) {
-      a.samples.push({ t: s.elapsed, current: s.throughput.current / 1e6, average: s.throughput.average / 1e6 });
-      if (a.samples.length > 900) a.samples.shift();
     }
     setSnap(s);
     setError(null);
@@ -91,7 +107,12 @@ export function useJob(jobId: string | null) {
       const terminal = TERMINAL.includes((snapRef.current?.status ?? "created") as never);
       if (terminal && !finalFetched && !s.filling) {                // one full event fetch for finished jobs
         finalFetched = true;
-        api.events(jobId, 0).then((list) => { processEvents(list); bump((n) => n + 1); }).catch(() => {});
+        api.events(jobId, 0).then((list) => {
+          // finished job: replace the partial tail we hold with the complete history
+          Object.assign(s, { lastSeq: 0, chunkConn: {}, spans: [], open: {}, events: [] });
+          processEvents(list);
+          bump((n) => n + 1);
+        }).catch(() => {});
       }
     }, 1000);
     return () => { closed = true; clearInterval(timer); ws?.close(); };

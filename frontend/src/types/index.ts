@@ -35,6 +35,7 @@ export interface Snapshot {
   chunk_states: string; chunk_owner: Record<string, number>; chunk_attempts: Record<string, number>;
   connections: Conn[]; retries: number; resumed_chunks: number; events: TEvent[]; last_seq: number;
   result: Result | null;
+  now: number;                 // server clock when the snapshot was taken (epoch seconds)
 }
 
 export interface Summary {

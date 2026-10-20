@@ -267,3 +267,22 @@ def test_journal_is_removed_once_a_manifest_snapshot_supersedes_it(server, make_
     _, r = run_job(src, chunk_size=1024)
     assert r["status"] == "completed"
     assert not list(server.cfg.manifests_dir.glob("*.journal"))
+
+
+def test_cancel_is_not_reported_as_failures(server, make_file):
+    src = make_file(1024 * 1024)
+
+    def slow(cid, attempts, data):
+        time.sleep(0.02)
+        return data
+    job = TransferJob(src, client_config(server.port, chunk_size=16 * 1024, connections=3), corrupt_hook=slow)
+    t = threading.Thread(target=job.run)
+    t.start()
+    while job.bytes_acked < 4 * 16 * 1024:
+        time.sleep(0.01)
+    job.cancel()
+    t.join(timeout=10)
+    assert job.result["status"] == "cancelled"
+    assert job.result["retries"] == 0
+    assert all(c.reconnects == 0 and c.last_error is None for c in job.conn.values())
+    assert not any(e["type"] == "conn_error" for e in job.events)

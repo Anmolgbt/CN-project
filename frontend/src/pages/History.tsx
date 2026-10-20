@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Nav } from "../App";
 import { EventLog } from "../components/Panels";
-import { Empty, Notice, StatusChip } from "../components/ui";
+import { Empty, Note, Section, State } from "../components/ui";
 import { api } from "../services/api";
-import { bytes, dateTime, duration, mbps } from "../services/format";
+import { bytes, dateTime, duration, jobLabel, mbps } from "../services/format";
 import type { Snapshot, Summary, TEvent } from "../types";
 
 export default function History({ nav }: { nav: Nav }) {
@@ -24,41 +24,48 @@ export default function History({ nav }: { nav: Nav }) {
   }, [open]);
 
   const resume = (id: string) => api.resume(id).then((r) => nav.go("live", r.job_id)).catch((e) => setErr(e.message));
-  const totalRetries = rows.reduce((a, r) => a + (r.retries ?? 0), 0);
-  const failures = rows.filter((r) => r.status !== "completed").length;
+  const retries = rows.reduce((a, r) => a + (r.retries ?? 0), 0);
+  const unfinished = rows.filter((r) => r.status !== "completed").length;
 
   return (
     <>
-      <div className="page-head"><div><h1>History and diagnostics</h1>
-        <p>Every finished transfer is saved on the API host. Select a row to read its full event log.</p></div>
-        <span className="chip">{rows.length} transfers, {failures} not completed, {totalRetries} retries in total</span></div>
-      {err && <Notice tone="bad">{err}</Notice>}
-      <section className="panel">
-        {rows.length === 0 ? <Empty>No transfers recorded yet.</Empty> : (
-          <div className="scroll"><table>
-            <thead><tr><th>Finished</th><th>File</th><th>Size</th><th>Time</th><th>Sockets</th><th>Average</th><th>Retries</th><th>Failed chunks</th><th>Integrity</th><th>Result</th><th /></tr></thead>
-            <tbody>{rows.map((h) => (
-              <tr key={h.job_id} className="click" onClick={() => setOpen(h.job_id)} aria-selected={open === h.job_id}>
-                <td>{dateTime(h.finished_at)}</td><td>{h.file_name}{h.kind === "benchmark" ? " (benchmark)" : ""}</td><td>{bytes(h.file_size)}</td>
-                <td>{duration(h.elapsed)}</td><td>{h.connections_used ?? h.connections}</td><td>{mbps(h.avg_mb_s)}</td><td>{h.retries ?? 0}</td><td>{h.failed_chunks ?? 0}</td>
-                <td>{h.checksum_match === true ? "match" : h.checksum_match === false ? "MISMATCH" : "none"}</td>
-                <td><StatusChip status={h.status} /></td>
-                <td>{h.resumable && <button className="btn small" onClick={(e) => { e.stopPropagation(); resume(h.job_id); }}>Resume</button>}</td>
-              </tr>))}</tbody>
-          </table></div>
-        )}
-      </section>
-      {detail && (
-        <section className="panel">
-          <div className="row" style={{ justifyContent: "space-between", marginBottom: "0.6rem" }}>
-            <h2 style={{ margin: 0 }}>Log for {detail.snap.file?.name}</h2>
-            <div className="row"><button className="btn ghost small" onClick={() => nav.go("integrity", detail.snap.job_id)}>Integrity view</button>
-              <button className="btn ghost small" onClick={() => nav.go("live", detail.snap.job_id)}>Live view</button></div>
+      <h1>History</h1>
+      <p className="lede">
+        {rows.length === 0 ? "Every finished transfer is saved here with its full event log."
+          : <><span className="n">{rows.length}</span> {rows.length === 1 ? "transfer" : "transfers"} recorded, <span className="n">{unfinished}</span> not completed, <span className="n">{retries}</span> chunks sent again in total. Select a row to read its log.</>}
+      </p>
+      {err && <Note tone="bad">{err}</Note>}
+
+      <Section first>
+        {rows.length === 0 ? <Empty>Nothing has finished yet.</Empty> : (
+          <div className="table">
+            <table>
+              <thead><tr><th>Finished</th><th>File</th><th>Size</th><th>Time</th><th>Sockets</th><th>Average</th><th>Resends</th><th>Failed chunks</th><th>Checksum</th><th>Result</th></tr></thead>
+              <tbody>{rows.map((h) => (
+                <tr key={h.job_id} className="pick" aria-selected={open === h.job_id} onClick={() => setOpen(h.job_id)}>
+                  <td>{dateTime(h.finished_at)}</td><td>{jobLabel(h)}</td><td>{bytes(h.file_size)}</td>
+                  <td>{duration(h.elapsed)}</td><td>{h.connections_used ?? h.connections}</td><td>{mbps(h.avg_mb_s)}</td><td>{h.retries ?? 0}</td><td>{h.failed_chunks ?? 0}</td>
+                  <td>{h.checksum_match === true ? "matches" : h.checksum_match === false ? <span className="bad">differs</span> : "not compared"}</td>
+                  <td>
+                    <State status={h.status} />
+                    {h.resumable && <><br /><button className="textbtn" onClick={(e) => { e.stopPropagation(); resume(h.job_id); }}>Resume this transfer</button></>}
+                  </td>
+                </tr>))}</tbody>
+            </table>
           </div>
-          {detail.snap.error && <Notice tone="warn">{detail.snap.error}</Notice>}
-          <p style={{ color: "var(--muted)", fontSize: "0.86rem" }}>Transfer ID <code>{detail.snap.transfer_id}</code>. Showing up to the last 300 events saved with this transfer.</p>
+        )}
+      </Section>
+
+      {detail && (
+        <Section title={`Log for ${detail.snap.file?.name ?? "this transfer"}`}>
+          <p className="small muted" style={{ marginBottom: 12 }}>Transfer ID <code>{detail.snap.transfer_id}</code>. The last 300 events are kept with each transfer.</p>
+          <p style={{ display: "flex", gap: 22, marginBottom: 16 }}>
+            <button className="textbtn" onClick={() => nav.go("integrity", detail.snap.job_id)}>Integrity check</button>
+            <button className="textbtn" onClick={() => nav.go("live", detail.snap.job_id)}>Timing diagram</button>
+          </p>
+          {detail.snap.error && detail.snap.status !== "cancelled" && <Note tone="warn">{detail.snap.error}</Note>}
           <EventLog events={detail.events} height={420} />
-        </section>
+        </Section>
       )}
     </>
   );

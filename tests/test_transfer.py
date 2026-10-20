@@ -199,3 +199,10 @@ def test_progress_snapshot_reports_real_numbers(server, make_file):
     assert done == sorted(done) and 0 < max(done) <= 200_000
     assert any(s["status"] == "transferring" and s["throughput"]["current"] > 0 for s in seen)
     assert job.snapshot()["chunks"]["completed"] == job.snapshot()["chunks"]["total"]
+
+
+def test_finished_snapshot_reports_same_average_as_result(server, make_file, run_job):
+    job, r = run_job(make_file(400_000), chunk_size=8192, connections=3)
+    snap = job.snapshot()
+    assert snap["throughput"]["average"] / 1e6 == pytest.approx(r["avg_mb_s"], rel=1e-9)
+    assert snap["throughput"]["peak"] >= snap["throughput"]["average"]
